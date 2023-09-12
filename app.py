@@ -1,12 +1,12 @@
 from flask import Flask
-from flask_restful import Api, request, abort, fields, marshal_with
+from flask_restful import Api, Resource, request, abort, fields, marshal_with, reqparse, inputs
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import func 
 import pandas as pd
 from datetime import date
 
-# pd.options.mode.chained_assignment = None
-
 app = Flask(__name__, instance_relative_config=True)
+api = Api(app)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///conso_database.db'
 db = SQLAlchemy(app)    
 
@@ -25,6 +25,32 @@ class Operateur(db.Model):
     importateur = db.Column(db.Boolean)
     exportateur = db.Column(db.Boolean)
     organisme_certificateur = db.Column(db.String(100), nullable=False)
+
+operateur_put_args = reqparse.RequestParser()
+operateur_put_args.add_argument("nom", type=str, help="dénomination de la structure", required=True)
+operateur_put_args.add_argument("cp", type=int, help="code postal siège social", required=True)
+operateur_put_args.add_argument("date_engagement", type=inputs.date, help="date d'engagement au format YYYY-MM-DD", required=True)
+operateur_put_args.add_argument("producteur", type=bool, help="l'opérateur est il un producteur ?", required=True)
+operateur_put_args.add_argument("preparateur", type=bool, help="l'opérateur est il un preparateur ?", required=True)
+operateur_put_args.add_argument("distributeur", type=bool, help="l'opérateur est il un distributeur ?", required=True)
+operateur_put_args.add_argument("restaurateur", type=bool, help="l'opérateur est il un restaurateur ?", required=True)
+operateur_put_args.add_argument("stockeur", type=bool, help="l'opérateur est il un stockeur ?", required=True)
+operateur_put_args.add_argument("importateur", type=bool, help="l'opérateur est il un importateur ?", required=True)
+operateur_put_args.add_argument("exportateur", type=bool, help="l'opérateur est il un exportateur ?", required=True)
+operateur_put_args.add_argument("organisme_certificateur", type=str, help="organisme certificateur BIO", required=True)
+
+operateur_patch_args = reqparse.RequestParser()
+operateur_patch_args.add_argument("nom", type=str, help="dénomination de la structure")
+operateur_patch_args.add_argument("cp", type=int, help="code postal siège social")
+operateur_patch_args.add_argument("date_engagement", type=inputs.date, help="date d'engagement au format YYYY-MM-DD")
+operateur_patch_args.add_argument("producteur", type=bool, help="l'opérateur est il un producteur ?")
+operateur_patch_args.add_argument("preparateur", type=bool, help="l'opérateur est il un preparateur ?")
+operateur_patch_args.add_argument("distributeur", type=bool, help="l'opérateur est il un distributeur ?")
+operateur_patch_args.add_argument("restaurateur", type=bool, help="l'opérateur est il un restaurateur ?")
+operateur_patch_args.add_argument("stockeur", type=bool, help="l'opérateur est il un stockeur ?")
+operateur_patch_args.add_argument("importateur", type=bool, help="l'opérateur est il un importateur ?")
+operateur_patch_args.add_argument("exportateur", type=bool, help="l'opérateur est il un exportateur ?")
+operateur_patch_args.add_argument("organisme_certificateur", type=str, help="organisme certificateur BIO")
 
 resource_fields = {
     'siret' : fields.Integer,
@@ -64,7 +90,6 @@ def create_init_db():
 
     # On parcourt les données pour les mettre en forme et les insérer dans la BDD
     for i in data.index:
-        print(f"{data['SIRET'][i]} - {data['DATEENGAGEMENT'][i]}")
         producteur = False
         preparateur = False
         distributeur = False
@@ -73,6 +98,7 @@ def create_init_db():
         importateur = False
         exportateur = False
         
+        # On teste la présence des activitées dans le champ source pour alimenter les booléens de la BDD
         if isinstance(data['ACTIVITES'][i], str):
             if 'Production' in data['ACTIVITES'][i]:
                 producteur = True
@@ -109,6 +135,91 @@ def create_init_db():
     db.session.commit()
     return 'Base de donnée initiale générée avec succès'
 
+
+class Operateur_bio(Resource):
+    @marshal_with(resource_fields)
+    def get(self, siret):
+        result = Operateur.query.filter_by(siret=siret).first()
+        if not result:
+            abort(404, message="Pas d'opérateur trouvé en base pour le SIRET fourni")
+        return result
+
+    @marshal_with(resource_fields)
+    def put(self, siret):
+        args = operateur_put_args.parse_args()
+        print (args)
+        result = Operateur.query.filter_by(siret=siret).first()
+        if result:
+            abort(409, message="Un enregistrement existe déjà pour ce numéro SIRET")
+
+        # On cherche le dernier numéro bio en base, pour définir celui du nouvel enregistrement (les numéros se suivent)
+        max_numero_bio = db.session.query(func.max(Operateur.numero_bio)).first()
+        
+        operateur = Operateur(
+            siret = siret, 
+            numero_bio = max_numero_bio[0] + 1,
+            nom = args['nom'],
+            cp = args['cp'],
+            date_engagement = args['date_engagement'],
+            producteur = args['producteur'],
+            preparateur = args['preparateur'],
+            distributeur = args['distributeur'],
+            restaurateur = args['restaurateur'],
+            stockeur = args['stockeur'],
+            importateur = args['importateur'],
+            exportateur = args['exportateur'],
+            organisme_certificateur = args['organisme_certificateur']
+            )
+        db.session.add(operateur)
+        db.session.commit()
+        return operateur, 201
+    
+    @marshal_with(resource_fields)
+    def patch(self, siret):
+        args = operateur_patch_args.parse_args()
+        # On teste si un enregistrement existe pour ce SIRET avant d'essayer de le mettre à jour
+        result = Operateur.query.filter_by(siret=siret).first()
+        if not result:
+            abort(404, message="Pas d'opérateur trouvé en base pour le SIRET fourni")
+
+        # Si les arguments sont renseignés dans le json reçu, on modifie les champs concernés
+        if args['nom']:
+            result.nom = args['nom']
+        if args['cp']:
+            result.cp = args['cp']
+        if args['date_engagement']:
+            result.date_engagement = args['date_engagement']
+        if args['producteur']:
+            result.producteur = args['producteur']
+        if args['preparateur']:
+            result.preparateur = args['preparateur']
+        if args['distributeur']:
+            result.distributeur = args['distributeur']
+        if args['restaurateur']:
+            result.restaurateur = args['restaurateur']
+        if args['stockeur']:
+            result.stockeur = args['stockeur']
+        if args['importateur']:
+            result.importateur = args['importateur']
+        if args['exportateur']:
+            result.exportateur = args['exportateur']
+        if args['organisme_certificateur']:
+            result.organisme_certificateur = args['organisme_certificateur']
+
+        db.session.commit()
+        return result
+    
+    def delete(self, siret):
+        # On teste si un enregistrement existe pour ce SIRET avant d'essayer de le supprimer
+        result = Operateur.query.filter_by(siret=siret).first()
+        if not result:
+            abort(404, message="Pas d'opérateur trouvé en base pour le SIRET fourni")
+
+        Operateur.query.filter_by(siret=siret).delete()
+        db.session.commit()
+        return '', 204
+
+api.add_resource(Operateur_bio, "/api/v1/resources/operateur/<int:siret>")
 
 if __name__ == '__main__':    
     app.run(debug=True)
