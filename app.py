@@ -136,6 +136,7 @@ def create_init_db():
     return 'Base de donnée initiale générée avec succès'
 
 
+# Opérations sur un opérateur bio en particulier, à partir de son numéro SIRET
 class Operateur_bio(Resource):
     @marshal_with(resource_fields)
     def get(self, siret):
@@ -219,7 +220,49 @@ class Operateur_bio(Resource):
         db.session.commit()
         return '', 204
 
+
+# Listes d'opérateurs bio en fonction de critères de recherche
+class Operateurs_bio_filtres(Resource):
+    @marshal_with(resource_fields)
+    def get(self):
+        args = operateur_patch_args.parse_args()
+        filtre = {}
+
+        # Si les arguments sont renseignés dans le json reçu, on alimente le filtre
+        if args['nom']:
+            filtre['nom'] = args['nom']
+        if args['cp']:
+            filtre['cp'] = args['cp']
+        if args['date_engagement']:
+            filtre['date_engagement'] = args['date_engagement']
+        if args['producteur']:
+            filtre['producteur'] = args['producteur']
+        if args['preparateur']:
+            filtre['preparateur'] = args['preparateur']
+        if args['distributeur']:
+            filtre['distributeur'] = args['distributeur']
+        if args['restaurateur']:
+            filtre['restaurateur'] = args['restaurateur']
+        if args['stockeur']:
+            filtre['stockeur'] = args['stockeur']
+        if args['importateur']:
+            filtre['importateur'] = args['importateur']
+        if args['exportateur']:
+            filtre['exportateur'] = args['exportateur']
+        if args['organisme_certificateur']:
+            filtre['organisme_certificateur'] = args['organisme_certificateur']
+
+        if len(filtre) == 0:
+            abort(400, message="Veuillez spécifier au moins un élément de filtre")
+
+        result = Operateur.query.filter_by(**filtre).all()           
+        if not result:
+            abort(404, message="Pas d'opérateur trouvé en base satisfaisant les filtres demandés")     
+        return result
+
+
 api.add_resource(Operateur_bio, "/api/v1/resources/operateur/<int:siret>")
+api.add_resource(Operateurs_bio_filtres, "/api/v1/resources/operateurs-filtres")
 
 if __name__ == '__main__':    
     app.run(debug=True)
